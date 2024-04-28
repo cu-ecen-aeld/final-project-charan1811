@@ -16,8 +16,9 @@
 #clean:
 #	rm -f $(TARGET)
 #
-LIBS = -L/usr/lib -lopencv_core -lopencv_flann -lopencv_video -lrt -lpthread -lc
-INCLUDE_DIRS = -I/usr/include/opencv4
+#LIBS = -L/usr/lib -lopencv_core -lopencv_flann -lopencv_video -lrt -lpthread -lc
+LIBS = -lrt -lpthread -lc
+#INCLUDE_DIRS = -I/usr/include/opencv4
 LIB_DIRS =
 CC = g++
 CDEFS =
@@ -32,7 +33,7 @@ clean:
 	rm -f *.o capt
 
 capt: $(OBJS)
-	$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $^ `pkg-config --libs opencv4` $(LIBS)
+	$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $^ $(LIBS)
 
 depend:
 

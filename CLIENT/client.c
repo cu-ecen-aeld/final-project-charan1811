@@ -6,22 +6,28 @@
 #include <unistd.h>
 #include <syslog.h>
 #include <opencv2/opencv.hpp>
+#include <wiringPi.h>
+#include <pthread.h>
+#include <sys/ioctl.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sched.h>
+#include <linux/i2c-dev.h>
+#include <semaphore.h>
 
-/***********************************************************************
-g++ client.c -o client `pkg-config opencv4 --libs --cflags`
-***********************************************************************/
-
-#define IMAGE_CAP "capture.ppm"
 #define SIZE 10241
 
 char marker[]="ANEESHGURRAM";
-
+#define IMAGE_CAP "capture.ppm"
 FILE* image;
 int sock_fd= -1;
 int st_kill_process=0;
 bool ldw_detected = true;
 cv::Mat binaryImage;
 std::vector<cv::Vec4i> lines;
+int res =0;
+pthread_mutex_t mutexLocks;
+sem_t sem1, sem2;
 
 void cleanup_on_exit()
 {
@@ -43,9 +49,10 @@ void sig_handler(int signal_number)
 
 int write_file(int sockfd)
 {
-	    int recv_size = 0, size = 0, read_size, write_size, packet_index = 1, retval;
+    int recv_size = 0, size = 0, read_size, write_size, packet_index = 1, retval;
     char imagearray[10241];
     char ack = '#';
+    int count = 0;
     
     do
     {
@@ -53,8 +60,6 @@ int write_file(int sockfd)
     } while (retval < 0);
 
     printf("size of the image identified as %d\n", size);
-   // syslog(LOG_INFO, "size of the image identified as %d\n", size);
-    
     
     image = fopen(IMAGE_CAP, "wb+");
 
@@ -123,11 +128,9 @@ int write_file(int sockfd)
     }
     
     send(sockfd, &ack, 1, 0);
-    printf("sent ack\n");
     syslog(LOG_INFO, "Total received image size: %i\n", recv_size);
-    printf("Total received image size: %i\n", recv_size);
     fclose(image);
-    
+
 	std::vector<cv::Point> nonZeroPoints;
 
 	cv::Mat inputImage = cv::imread(IMAGE_CAP, cv::IMREAD_GRAYSCALE);
@@ -138,28 +141,148 @@ int write_file(int sockfd)
 
 	for (int i = 0; i < nonZeroPoints.size(); i++)
 	{
-	if (abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)) < 50)
-	{
-		printf("BUZZER_ON %d\n\r", abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)));
+	    if (abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)) < 50)
+	    {
+		//printf("OUT_OF_LANE %d\n\r", abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)));
+		digitalWrite (0, 0) ;
+	    }
+	    else
+	    {
+		//printf("INSIDE_OF_LANE %d \n\r", abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)));
+		digitalWrite (0, 1) ;
+	    }
 	}
-	else
-	{
-		printf("BUZZER_OFF %d \n\r", abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)));
+        
+    syslog(LOG_INFO, "returning 0\n", recv_size);
+    sem_post(&sem1);
+    return 0;
+    
+}
+
+void readI2C(unsigned char *data, int bytes) {
+	int i2cAddress = 0x57;
+	int i2cHandle;
+	char *deviceName = "/dev/i2c-1";
+    
+	// Open the I2C bus
+	if ((i2cHandle = open(deviceName, O_RDWR)) < 0) {
+    	perror("Error opening I2C");
+    	exit(1);
 	}
+    
+	// Set the I2C slave address
+	if (ioctl(i2cHandle, I2C_SLAVE, i2cAddress) < 0) {
+    	perror("Error setting I2C slave address");
+    	exit(1);
 	}
-    return 0; 
+
+	// Write a '1' to start ranging session
+	unsigned char startSession = 0x01;
+	if (write(i2cHandle, &startSession, 1) != 1) {
+    	perror("Error writing to I2C");
+    	exit(1);
+	}
+    
+	// Wait a few milliseconds (you may need to adjust this)
+	usleep(15000); // Wait for 10 milliseconds
+    
+	// Read the 3-byte response
+	if (read(i2cHandle, data, bytes) != bytes) {
+    	perror("Error reading from I2C");
+    	exit(1);
+	}
+    
+	// Close the I2C bus
+	close(i2cHandle);
+}
+
+/*
+void handle_interrupt(int signum) {
+    if (signum == SIGINT) {
+        printf("\nReceived SIGINT. Exiting.\n");
+        exit(0);
+    }
+}*/
+
+void* sensor_thread(void*)
+{
+    unsigned char data[3];
+    
+    while(1)
+    {
+        sem_wait(&sem1);
+        readI2C(data, 3);
+          // Combine the bytes to get the distance in um
+        unsigned int distance = (data[0] << 16) | (data[1] << 8) | data[2];
+        // Convert um to mm
+        float distance_mm = distance / 1000.0;
+        //printf("Distance: %.2f mm\n", distance_mm);
+        if(distance_mm == 0)
+        {
+          digitalWrite (7, 1) ;
+        }
+        else if (distance_mm < 50)
+        {
+          digitalWrite (7, 0) ;
+        }
+        
+        delay(200); // Delay for 1 second
+        digitalWrite (7, 1) ;
+    }
+}
+
+void* wfile_thread(void* clientfd)
+{
+    int * client_fd = (int*) clientfd;
+    cv::namedWindow("DISPLAY", cv::WINDOW_NORMAL);
+    cv::resizeWindow("DISPLAY", 500,500);
+	while (!st_kill_process)
+    {
+        // recieve image from the server
+        if (write_file(*client_fd) == -1)
+        {
+            perror("[-]image receive failure\n");
+            exit(EXIT_FAILURE);
+        }
+        printf("D\n");
+    }
 }
 
 int main()
 {
-   char *ip = "172.20.10.4";
+   //char *ip = "172.20.10.4";
+   //char *ip = "10.0.0.121";
+   char *ip = "192.168.18.151";
     int port = 8080;
     int e;
+    pthread_t wfilethread, sensorthread;
+    size_t stack_size = 8026;
+    pthread_attr_t attr, attr1;
+    pthread_attr_init(&attr);
+    pthread_attr_init(&attr1);
+    pthread_attr_setstacksize(&attr, stack_size);
+    cpu_set_t thread_cpu, thread_cpu_1;
+    CPU_ZERO(&thread_cpu);
+    CPU_SET(3, &thread_cpu);
+    //CPU_ZERO(&thread_cpu_1);
+    //CPU_SET(2, &thread_cpu_1);
+    
+    if (wiringPiSetup () == -1)
+        return 1 ;
+        
+    pinMode (0, OUTPUT) ;         // aka BCM_GPIO pin 17
+    pinMode (14, INPUT) ;         // aka BCM_GPIO pin 17
+    pinMode(2, INPUT); // Set BCM pin 11 as input
+    pinMode (7, OUTPUT) ;
+    digitalWrite (0, 0) ;
 
     int  new_sock;
     struct sockaddr_in server_addr, new_addr;
     socklen_t addr_size;
     int retval=0;
+    
+    sem_init(&sem1,0,0);
+    sem_init(&sem2,0,0);
 
     // Set up signal handler for SIGINT (Ctrl+C)
    // signal(SIGINT, handle_interrupt);
@@ -189,7 +312,13 @@ int main()
         exit(EXIT_FAILURE);
     }
     printf("[+]connection created.\n");
-	while (!st_kill_process)
+    pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &thread_cpu);
+    //pthread_attr_setaffinity_np(&attr1, sizeof(cpu_set_t), &thread_cpu_1);
+    pthread_create(&wfilethread, NULL, wfile_thread, &client_fd);
+    pthread_create(&sensorthread, &attr, sensor_thread, NULL);
+    pthread_join(wfilethread, NULL);
+    pthread_join(sensorthread, NULL);
+    /*while (!st_kill_process)
     {
         // recieve image from the server
         if (write_file(client_fd) == -1)
@@ -197,34 +326,9 @@ int main()
             perror("[-]image receive failure\n");
             exit(EXIT_FAILURE);
         }
-    }
-
-
-/*
-    while (1) {
-        addr_size = sizeof(new_addr);
-        new_sock = accept(sockfd, (struct sockaddr*)&new_addr, &addr_size);
-        if (new_sock < 0) {
-            perror("[-]Error in Accepting");
-            exit(1);
-        }
-        printf("[+]Connection accepted from %s:%d\n", inet_ntoa(new_addr.sin_addr), ntohs(new_addr.sin_port));
-
-        int file_count = 1; // Counter for the received files
-
-        // Write received data to files with incremental names until connection closes
-        while (1) {
-            write_file(new_sock, file_count);
-            printf("[+]Data written to the file: capture.ppm\n");
-
-            // Check if there's more data to receive
-		if(file_count==1000) break;
-
-            file_count++; // Increment file count for the next file
-        }
-
-        close(new_sock);
     }*/
+
+
 
     close(sock_fd);
     return 0;

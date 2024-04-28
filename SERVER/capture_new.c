@@ -30,6 +30,7 @@
 
 #define SIZE 10240
 
+/************************************Macros***************************/
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 #define COLOR_CONVERT
 #define HRES 320
@@ -40,10 +41,16 @@
 
 
 
-#define MARKER_SIZE 100
+#define MARKER_SIZE 100 // Define the size of the marker
 
+
+
+
+
+// Format is used by a number of functions, so made as a file global
 static struct v4l2_format fmt;
 
+/************************************Enumeration***************************/
 enum io_method 
 {
         IO_METHOD_READ,
@@ -51,12 +58,14 @@ enum io_method
         IO_METHOD_USERPTR,
 };
 
+/************************************Struct***************************/
 struct buffer 
 {
         void   *start;
         size_t  length;
 };
 
+/*******************************Global Variables**********************/
 static char            *dev_name;
 static enum io_method   io = IO_METHOD_MMAP;
 static int              fd = -1;
@@ -68,6 +77,7 @@ static int              frame_count = 1;
 pthread_mutex_t mutexLocks[1];
 bool imageFlags[1] = {false};
 
+/*******************************Function declarations**********************/
 static void errno_exit(const char *s)
 {
         syslog(LOG_ERR, "%s error %d, %s\n", s, errno, strerror(errno));
@@ -87,16 +97,21 @@ static int xioctl(int fh, int request, void *arg)
         return r;
 }
 
+// File names to store the images //
 char ppm_header[]="P6\n#9999999999 sec 9999999999 msec \n"HRES_STR" "VRES_STR"\n255\n";
 char ppm_dumpname[][10]={"test1.ppm","test2.ppm","test3.ppm","test4.ppm","test5.ppm"};
 
 char marker[]="ANEESHGURRAM";  // Define a buffer for the marker
 
-char *ip = "172.20.10.4";
+//char *ip = "172.20.10.4";
+//char *ip = "10.0.0.121";
+char *ip = "192.168.18.151";
 int port = 8080;
-char *filename = "/home/jayash/Downloads/common_final/test1.ppm";
+//char *filename = "/home/aneesh/courses/common_final/demo/capture.ppm";
+char *filename = "/root/server_app/test1.ppm";
+    
 
-int sockfd;
+int sockfd; // Declare sockfd globally for reuse in transfer function
 
 int init(const char *ip, int port) {
 
@@ -123,9 +138,11 @@ int init(const char *ip, int port) {
     }
 
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
+    server_addr.sin_port = htons(port);  // Use htons to convert port to network byte order
     server_addr.sin_addr.s_addr = inet_addr(ip);
+    //server_addr.sin_addr.s_addr = INADDR_ANY;
 
+    // Forcefully attaching socket to the port 8080
     if (bind(sockfd, (struct sockaddr *)&server_addr,sizeof(server_addr)) < 0)
     {
     	syslog(LOG_ERR,"bind failed \n\r");
@@ -189,6 +206,7 @@ int send_file(void* socket,FILE *fp, int packet_index)
     
     
     return packet_index;
+    
 }
 
 void transfer(void* socket, const char *filename) {
@@ -203,6 +221,7 @@ void transfer(void* socket, const char *filename) {
 		if (i>=frame_count){
 			i=0;
 		}
+        
 		continue;
 	}
 
@@ -245,6 +264,8 @@ void transfer(void* socket, const char *filename) {
 		perror("[-]Write failed .");
 		exit(EXIT_FAILURE);
 	}
+	
+	// can implement reading something from client.
 
     packet_index= send_file(socket,fp, packet_index);
     
@@ -268,17 +289,23 @@ void transfer(void* socket, const char *filename) {
 		i=0;
 	}
 	}
+
+
+    
 }
 
 static void dump_ppm(const void *p, int size, unsigned int tag, struct timespec *time)
 {
+
+    // Lock before writing //
     pthread_mutex_lock(&mutexLocks[tag-1]);
     if (imageFlags[tag-1]){
     	pthread_mutex_unlock(&mutexLocks[tag-1]);
     	return;
     }
     int written, total, dumpfd;
-
+    
+    // Open file descriptor //
     dumpfd = open(ppm_dumpname[tag-1], O_WRONLY | O_NONBLOCK | O_CREAT, 00666);
 
     snprintf(&ppm_header[4], 11, "%010d", (int)time->tv_sec);
@@ -297,6 +324,7 @@ static void dump_ppm(const void *p, int size, unsigned int tag, struct timespec 
 
     close(dumpfd);
     imageFlags[tag-1] = true;
+    // Unlock after writing //
     pthread_mutex_unlock(&mutexLocks[tag-1]);
     
 }
@@ -352,12 +380,14 @@ static void process_image(const void *p, int size)
     int y_temp, y2_temp, u_temp, v_temp;
     unsigned char *pptr = (unsigned char *)p;
 
+    // record when process was called
     clock_gettime(CLOCK_REALTIME, &frame_time);    
 
     framecnt++;
     if (framecnt >= (frame_count+1)){
     	framecnt = frame_count;
     }
+    ////printf("Dump YUYV converted to RGB size %d\n", size);
        
     // Pixels are YU and YV alternating, so YUYV which is 4 bytes
     // We want RGB, so RGBRGB which is 6 bytes
@@ -393,6 +423,7 @@ static int read_frame(void)
                         return 0;
 
                     case EIO:
+
                     default:
                         errno_exit("read");
                 }
@@ -444,6 +475,7 @@ static int read_frame(void)
                         return 0;
 
                     case EIO:
+
                     default:
                         errno_exit("VIDIOC_DQBUF");
                 }
@@ -520,6 +552,7 @@ static void mainloop(void)
                 break;
             }
 
+            /* EAGAIN - continue select loop unless count done. */
             if(count <= 0){
             	count = frame_count;
             	break;
@@ -539,7 +572,6 @@ static void stop_capturing(void)
 
         switch (io) {
         case IO_METHOD_READ:
-                /* Nothing to do. */
                 break;
 
         case IO_METHOD_MMAP:
@@ -559,46 +591,46 @@ static void start_capturing(void)
         switch (io) 
         {
 
-		case IO_METHOD_READ:
-		        break;
+        case IO_METHOD_READ:
+                break;
 
-		case IO_METHOD_MMAP:
-		        for (i = 0; i < n_buffers; ++i) 
-		        {
-		                syslog(LOG_INFO,"allocated buffer %d\n\r", n_buffers);
-		                struct v4l2_buffer buf;
+        case IO_METHOD_MMAP:
+                for (i = 0; i < n_buffers; ++i) 
+                {
+                        syslog(LOG_INFO,"allocated buffer %d\n\r", n_buffers);
+                        struct v4l2_buffer buf;
 
-		                CLEAR(buf);
-		                buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		                buf.memory = V4L2_MEMORY_MMAP;
-		                buf.index = i;
+                        CLEAR(buf);
+                        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                        buf.memory = V4L2_MEMORY_MMAP;
+                        buf.index = i;
 
-		                if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
-		                        errno_exit("VIDIOC_QBUF");
-		        }
-		        type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		        if (-1 == xioctl(fd, VIDIOC_STREAMON, &type))
-		                errno_exit("VIDIOC_STREAMON");
-		        break;
+                        if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
+                                errno_exit("VIDIOC_QBUF");
+                }
+                type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                if (-1 == xioctl(fd, VIDIOC_STREAMON, &type))
+                        errno_exit("VIDIOC_STREAMON");
+                break;
 
-		case IO_METHOD_USERPTR:
-		        for (i = 0; i < n_buffers; ++i) {
-		                struct v4l2_buffer buf;
+        case IO_METHOD_USERPTR:
+                for (i = 0; i < n_buffers; ++i) {
+                        struct v4l2_buffer buf;
 
-		                CLEAR(buf);
-		                buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		                buf.memory = V4L2_MEMORY_USERPTR;
-		                buf.index = i;
-		                buf.m.userptr = (unsigned long)buffers[i].start;
-		                buf.length = buffers[i].length;
+                        CLEAR(buf);
+                        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                        buf.memory = V4L2_MEMORY_USERPTR;
+                        buf.index = i;
+                        buf.m.userptr = (unsigned long)buffers[i].start;
+                        buf.length = buffers[i].length;
 
-		                if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
-		                        errno_exit("VIDIOC_QBUF");
-		        }
-		        type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		        if (-1 == xioctl(fd, VIDIOC_STREAMON, &type))
-		                errno_exit("VIDIOC_STREAMON");
-		        break;
+                        if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
+                                errno_exit("VIDIOC_QBUF");
+                }
+                type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                if (-1 == xioctl(fd, VIDIOC_STREAMON, &type))
+                        errno_exit("VIDIOC_STREAMON");
+                break;
         }
 }
 
@@ -696,7 +728,12 @@ static void init_mmap(void)
                         errno_exit("VIDIOC_QUERYBUF");
 
                 buffers[n_buffers].length = buf.length;
-                buffers[n_buffers].start = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, buf.m.offset);
+                buffers[n_buffers].start =
+                        mmap(NULL,
+                              buf.length,
+                              PROT_READ | PROT_WRITE,
+                              MAP_SHARED,
+                              fd, buf.m.offset);
 
                 if (MAP_FAILED == buffers[n_buffers].start)
                         errno_exit("mmap");
@@ -790,6 +827,10 @@ static void init_device(void)
             break;
     }
 
+
+    /* Select video input, video standard and tune here. */
+
+
     CLEAR(cropcap);
 
     cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -811,6 +852,10 @@ static void init_device(void)
         }
 
     }
+    else
+    {
+    }
+
 
     CLEAR(fmt);
 
@@ -820,6 +865,8 @@ static void init_device(void)
     {
         fmt.fmt.pix.width       = HRES;
         fmt.fmt.pix.height      = VRES;
+
+        // This one work for Logitech C200
         fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
         fmt.fmt.pix.field       = V4L2_FIELD_NONE;
 
@@ -829,9 +876,12 @@ static void init_device(void)
     else
     {
         if (-1 == xioctl(fd, VIDIOC_G_FMT, &fmt))
-                    errno_exit("VIDIOC_G_FMT");
+        {
+        	errno_exit("VIDIOC_G_FMT");	
+        }
     }
 
+    /* Buggy driver paranoia. */
     min = fmt.fmt.pix.width * 2;
     if (fmt.fmt.pix.bytesperline < min)
             fmt.fmt.pix.bytesperline = min;
@@ -889,6 +939,7 @@ static void open_device(void)
 }
 
 void *socketThread(void* arg){
+    //send_image(arg);
     transfer((arg),filename);
     printf("Image sending Completed\n");
     return NULL;
@@ -906,16 +957,15 @@ int main(int argc, char **argv)
     if(argc > 1)
         dev_name = argv[1];
     else
-        dev_name = "/dev/video0";
+        dev_name = "/dev/video1";
     
     open_device();
     init_device();
     start_capturing();
     
-    //int x = 100;
     sockfd= init(ip, port);
     pthread_create(&capThread, NULL, captureThread, NULL);
-
+    
     pthread_create(&sockThread, NULL, socketThread, &sockfd);
 
     pthread_join(capThread, NULL);
