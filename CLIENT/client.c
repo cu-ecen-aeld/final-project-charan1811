@@ -1,3 +1,24 @@
+/*****************************************************************************
+​* Copyright​ ​(C)​ ​2024 ​by​ ​Sai Charan Mandadi, Aneesh Gurram & Jayash Arun Raulkar
+​*
+​* ​​Redistribution,​ ​modification​ ​or​ ​use​ ​of​ ​this​ ​software​ ​in​ ​source​ ​or​ ​binary
+​* ​​forms​ ​is​ ​permitted​ ​as​ ​long​ ​as​ ​the​ ​files​ ​maintain​ ​this​ ​copyright.​ ​Users​ ​are
+​​* ​permitted​ ​to​ ​modify​ ​this​ ​and​ ​use​ ​it​ ​to​ ​learn​ ​about​ ​the​ ​field​ ​of​ ​embedded
+​* software.​ Sai Charan Mandadi, Aneesh Gurram, Jayash Arun Raulkar ​and​ ​the​ ​
+* University​ ​of​ ​Colorado​ ​are​ ​not​ ​liable​ ​for any​ ​misuse​ ​of​ ​this​ ​material.
+​*
+*****************************************************************************
+​​*​ ​@file​ client.c
+​​*​ ​@brief ​ Multithreaded application for Socket implementation to receive frames 
+* from server and Opencv for lane detection on one thread and I2C, GPIO application 
+* development for Sensors/actuators control on different thread.
+​​*
+​​*​ ​@author​ ​Sai Charan Mandadi, Aneesh Gurram & Jayash Arun Raulkar
+​​*​ ​@date​ ​Apr ​29 ​2024
+​*​ ​@version​ ​1.0
+​*
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,7 +67,7 @@ void sig_handler(int signal_number)
     exit(EXIT_SUCCESS);
 }
 
-
+//Used to read and performs opencv to dump the frame and display it on DISPLAY WINDOW.
 int write_file(int sockfd)
 {
     int recv_size = 0, size = 0, read_size, write_size, packet_index = 1, retval;
@@ -143,12 +164,10 @@ int write_file(int sockfd)
 	{
 	    if (abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)) < 50)
 	    {
-		//printf("OUT_OF_LANE %d\n\r", abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)));
 		digitalWrite (0, 0) ;
 	    }
 	    else
 	    {
-		//printf("INSIDE_OF_LANE %d \n\r", abs((binaryImage.cols / 2) - (nonZeroPoints[i].x)));
 		digitalWrite (0, 1) ;
 	    }
 	}
@@ -159,6 +178,7 @@ int write_file(int sockfd)
     
 }
 
+//Reads data from sensor connected to /dev/i2c-1
 void readI2C(unsigned char *data, int bytes) {
 	int i2cAddress = 0x57;
 	int i2cHandle;
@@ -196,14 +216,7 @@ void readI2C(unsigned char *data, int bytes) {
 	close(i2cHandle);
 }
 
-/*
-void handle_interrupt(int signum) {
-    if (signum == SIGINT) {
-        printf("\nReceived SIGINT. Exiting.\n");
-        exit(0);
-    }
-}*/
-
+//Thread that reads sensor data and controls the LED using GPIO.
 void* sensor_thread(void*)
 {
     unsigned char data[3];
@@ -231,6 +244,7 @@ void* sensor_thread(void*)
     }
 }
 
+//Thread that reads, performs lane detection and writes it into a file.
 void* wfile_thread(void* clientfd)
 {
     int * client_fd = (int*) clientfd;
@@ -250,8 +264,6 @@ void* wfile_thread(void* clientfd)
 
 int main()
 {
-   //char *ip = "172.20.10.4";
-   //char *ip = "10.0.0.121";
    char *ip = "192.168.18.151";
     int port = 8080;
     int e;
@@ -272,7 +284,7 @@ int main()
         
     pinMode (0, OUTPUT) ;         // aka BCM_GPIO pin 17
     pinMode (14, INPUT) ;         // aka BCM_GPIO pin 17
-    pinMode(2, INPUT); // Set BCM pin 11 as input
+    pinMode(2, INPUT); 	   // Set BCM pin 11 as input
     pinMode (7, OUTPUT) ;
     digitalWrite (0, 0) ;
 
@@ -318,17 +330,6 @@ int main()
     pthread_create(&sensorthread, &attr, sensor_thread, NULL);
     pthread_join(wfilethread, NULL);
     pthread_join(sensorthread, NULL);
-    /*while (!st_kill_process)
-    {
-        // recieve image from the server
-        if (write_file(client_fd) == -1)
-        {
-            perror("[-]image receive failure\n");
-            exit(EXIT_FAILURE);
-        }
-    }*/
-
-
 
     close(sock_fd);
     return 0;

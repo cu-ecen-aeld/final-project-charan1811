@@ -1,4 +1,28 @@
-
+/*  Adapted by Sam Siewert for use with UVC web cameras and Bt878 frame
+ *  grabber NTSC cameras to acquire digital video from a source,
+ *  time-stamp each frame acquired, save to a PGM or PPM file.
+ *
+ *  The original code adapted was open source from V4L2 API and had the
+ *  following use and incorporation policy: */
+/*****************************************************************************
+​* Copyright​ ​(C)​ ​2024 ​by​ ​Sai Charan Mandadi & Aneesh Gurram
+​*
+​* ​​Redistribution,​ ​modification​ ​or​ ​use​ ​of​ ​this​ ​software​ ​in​ ​source​ ​or​ ​binary
+​* ​​forms​ ​is​ ​permitted​ ​as​ ​long​ ​as​ ​the​ ​files​ ​maintain​ ​this​ ​copyright.​ ​Users​ ​are
+​​* ​permitted​ ​to​ ​modify​ ​this​ ​and​ ​use​ ​it​ ​to​ ​learn​ ​about​ ​the​ ​field​ ​of​ ​embedded
+​* software.​ Sai Charan Mandadi, Aneesh Gurram ​and​ ​the​ ​University​ ​of​ ​Colorado​ ​are​ ​not​ ​liable​ ​for
+​​* ​any​ ​misuse​ ​of​ ​this​ ​material.
+​*
+*****************************************************************************
+​​*​ ​@file​ capture_new.c
+​​*​ ​@brief ​ functionality of the socket server communication : V4L2 frame capture and Server side 
+				C/C++ program to send data over Socket
+​​*
+​​*​ ​@author​ ​Sai Charan Mandadi & Aneesh Gurram
+​​*​ ​@date​ ​Apr ​29 ​2024
+​*​ ​@version​ ​1.0
+​*
+*/
 
 /************************************include files***************************/
 #include <stdio.h>
@@ -38,14 +62,7 @@
 #define HRES_STR "320"
 #define VRES_STR "240"
 #define PORT 8080
-
-
-
 #define MARKER_SIZE 100 // Define the size of the marker
-
-
-
-
 
 // Format is used by a number of functions, so made as a file global
 static struct v4l2_format fmt;
@@ -103,14 +120,9 @@ char ppm_dumpname[][10]={"test1.ppm","test2.ppm","test3.ppm","test4.ppm","test5.
 
 char marker[]="ANEESHGURRAM";  // Define a buffer for the marker
 
-//char *ip = "172.20.10.4";
-//char *ip = "10.0.0.121";
 char *ip = "192.168.18.151";
 int port = 8080;
-//char *filename = "/home/aneesh/courses/common_final/demo/capture.ppm";
 char *filename = "/root/server_app/test1.ppm";
-    
-
 int sockfd; // Declare sockfd globally for reuse in transfer function
 
 int init(const char *ip, int port) {
@@ -140,7 +152,6 @@ int init(const char *ip, int port) {
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);  // Use htons to convert port to network byte order
     server_addr.sin_addr.s_addr = inet_addr(ip);
-    //server_addr.sin_addr.s_addr = INADDR_ANY;
 
     // Forcefully attaching socket to the port 8080
     if (bind(sockfd, (struct sockaddr *)&server_addr,sizeof(server_addr)) < 0)
@@ -180,7 +191,6 @@ int send_file(void* socket,FILE *fp, int packet_index)
     
     	while (!feof(fp))
 	{
-		// while(packet_index = 1){
 		// Read from the file into our send buffer
 		read_size = fread(data, 1, sizeof(data) - 1, fp);
 		if (read_size < 0)
@@ -194,7 +204,6 @@ int send_file(void* socket,FILE *fp, int packet_index)
 			state = write(*((int*)socket), data, read_size);
 			if (state == -1)
 			{
-				//printf("Write failed");
 				exit(EXIT_FAILURE);
 			}
 		} while (state < 0);
@@ -939,7 +948,6 @@ static void open_device(void)
 }
 
 void *socketThread(void* arg){
-    //send_image(arg);
     transfer((arg),filename);
     printf("Image sending Completed\n");
     return NULL;
